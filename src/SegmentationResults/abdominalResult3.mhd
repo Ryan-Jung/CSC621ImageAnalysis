@@ -1,0 +1,14 @@
+ObjectType = Image
+NDims = 3
+BinaryData = True
+BinaryDataByteOrderMSB = False
+CompressedData = False
+TransformMatrix = 0 1 0 0 0 -1 -1 0 0
+Offset = 164 -330.68000000000001 1.6796899999999999
+CenterOfRotation = 0 0 0
+AnatomicalOrientation = ASL
+ElementSpacing = 0.640625 0.640625 2
+DimSize = 512 512 166
+ElementNumberOfChannels = 3
+ElementType = MET_UCHAR
+ElementDataFile = abdominalResult3.raw

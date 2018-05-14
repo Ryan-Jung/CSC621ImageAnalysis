@@ -1,6 +1,8 @@
 #include "itkImage.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
+#include "itkImageSeriesReader.h"
+#include "itkGDCMSeriesFileNames.h"
 #include "itkGDCMImageIO.h"
 #include "itkDemonsRegistrationFilter.h"
 #include "itkHistogramMatchingImageFilter.h"
@@ -10,43 +12,65 @@
 
 
 /*
-	argv[1] fixed image path
-	argv[2] moving image path
-	argv[3] output image path
+	argv[1] fixed images path
+	argv[2] moving images path
+	argv[3] output image path should have .nii file extension
 	argv[4] number of iterations
 */
 int main( int argc, char *argv  [] )
-{	
+{
+	
+/*
+  argc = 4;
+	argv[1] = "C:\\Users\\Owner\\Desktop\\ct_scan\\ct_12";
+	argv[2] = "C:\\Users\\Owner\\Desktop\\ct_scan\\ct_21";
+	argv[3] = "C:\\Users\\Owner\\Desktop\\output3.nii";
+	argv[4] = "1";
+*/
+
 	if (argc < 4) {
 		return EXIT_FAILURE;
 	}
 	std::cout << "Running demon's registration" << std::endl;
 	
 	typedef signed short InputPixelType;
-	const unsigned int Dimension = 2;
+	const unsigned int Dimension = 3;
 	typedef itk::Image <InputPixelType, Dimension> ImageType;
 
-	typedef itk::ImageFileReader<ImageType> ReaderType;
-	ReaderType::Pointer fixedImage = ReaderType::New();
-	ReaderType::Pointer movingImage = ReaderType::New();
-
-	//char * ctScanOrig = "C:\\Users\\Owner\\Desktop\\ct_scan\\ct_1\\000000.dcm";
-	char * ctScanOrig = argv[1];
-	fixedImage->SetFileName(ctScanOrig);
-
-	//char * ctScanNew = "C:\\Users\\Owner\\Desktop\\ct_scan\\ct_2\\000024.dcm";
-	char * ctScanNew = argv[2];
-	movingImage->SetFileName(ctScanNew);
+	typedef itk::ImageSeriesReader< ImageType > ReaderType;
+	ReaderType::Pointer fixedReader = ReaderType::New();
+	ReaderType::Pointer movingReader = ReaderType::New();
 
 	typedef itk::GDCMImageIO ImageIOType;
 	ImageIOType::Pointer gdcmImageIO = ImageIOType::New();
 
+	fixedReader->SetImageIO(gdcmImageIO);
+	movingReader->SetImageIO(gdcmImageIO);
 
-	fixedImage->SetImageIO(gdcmImageIO);
-	movingImage->SetImageIO(gdcmImageIO);
+	typedef itk::GDCMSeriesFileNames NameGeneratorType;
+	NameGeneratorType::Pointer fixedNameGenerator = NameGeneratorType::New();
+	NameGeneratorType::Pointer movingNameGenerator = NameGeneratorType::New();
+
+	fixedNameGenerator->SetUseSeriesDetails(true);
+	fixedNameGenerator->SetDirectory(argv[1]);
+
+	movingNameGenerator->SetUseSeriesDetails(true);
+	movingNameGenerator->SetDirectory(argv[2]);
+	
+	const std::vector<std::string> & fixedSeriesUID = fixedNameGenerator->GetSeriesUIDs();
+	std::string fixedImageSeriesIdentifier = fixedSeriesUID.begin()->c_str();
+	std::vector<std::string> fixedImageFiles = fixedNameGenerator->GetFileNames(fixedImageSeriesIdentifier);
+
+	const std::vector<std::string> & movingSeriesUID = movingNameGenerator->GetSeriesUIDs();
+	std::string movingImageSeriesIdentifier = movingSeriesUID.begin()->c_str();
+	std::vector<std::string> movingImageFiles = movingNameGenerator->GetFileNames(movingImageSeriesIdentifier);
+
+	fixedReader->SetFileNames(fixedImageFiles);
+	movingReader->SetFileNames(movingImageFiles);
+	
 	try {
-		fixedImage->Update();
-		movingImage->Update();
+		fixedReader->Update();
+		movingReader->Update();
 	}
 	catch (itk::ExceptionObject & e) {
 		std::cerr << "Exception in file reader";
@@ -58,8 +82,8 @@ int main( int argc, char *argv  [] )
 
 	ImageCast::Pointer fixedImageCast = ImageCast::New();
 	ImageCast::Pointer movingImageCast = ImageCast::New();
-	fixedImageCast->SetInput(fixedImage->GetOutput());
-	movingImageCast->SetInput(movingImage->GetOutput());
+	fixedImageCast->SetInput(fixedReader->GetOutput());
+	movingImageCast->SetInput(movingReader->GetOutput());
 
 	typedef itk::HistogramMatchingImageFilter<InternalImageType, InternalImageType> HistMatcher;
 	HistMatcher::Pointer matcher = HistMatcher::New();
@@ -91,29 +115,38 @@ int main( int argc, char *argv  [] )
 	WarpType::Pointer warper = WarpType::New();
 	LinearInterpolator::Pointer interpolator = LinearInterpolator::New();
 
-	warper->SetInput(movingImage->GetOutput());
+	warper->SetInput(movingReader->GetOutput());
 	warper->SetInterpolator(interpolator);
-	warper->SetOutputSpacing(fixedImage->GetOutput()->GetSpacing());
-	warper->SetOutputOrigin(fixedImage->GetOutput()->GetOrigin());
-	warper->SetOutputDirection(fixedImage->GetOutput()->GetDirection());
+	warper->SetOutputSpacing(fixedReader->GetOutput()->GetSpacing());
+	warper->SetOutputOrigin(fixedReader->GetOutput()->GetOrigin());
+	warper->SetOutputDirection(fixedReader->GetOutput()->GetDirection());
 
 	warper->SetDisplacementField(demonFilter->GetOutput());
 
-	
-	typedef itk::ImageFileWriter<ImageType> FileWriter;
+	typedef itk::Image<unsigned short, Dimension > OutputImageType;
+	typedef itk::CastImageFilter<ImageType, OutputImageType> OutputCastType;
+
+	OutputCastType::Pointer caster = OutputCastType::New();
+	caster->SetInput(warper->GetOutput());
+	typedef itk::ImageFileWriter<OutputImageType> FileWriter;
 	FileWriter::Pointer fileWriter = FileWriter::New();
-	//fileWriter->SetFileName("C:\\Users\\Owner\\Desktop\\OutPut.dcm");
+
 	fileWriter->SetFileName(argv[3]);
-	fileWriter->SetInput(warper->GetOutput());
+	fileWriter->SetInput(caster->GetOutput());
+	//fileWriter->SetInput(movingReader->GetOutput());
+	
 	try {
 		fileWriter->Update();
 	}
 	catch (itk::ExceptionObject & e) {
-		std::cerr << "Exception writing file";
+		std::cerr << "Exception writing file" << std::endl;
+		std::cout << e.GetDescription() << std::endl;
+		
 	}
 
 	std::cout << "Finished! Press any key to terminate" << std::endl;
 	std::getchar();
 	return EXIT_SUCCESS;
 }
+
 
